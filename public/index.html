@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Aptos Gas Estimator</title>
+  <link rel="stylesheet" href="/style.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+  <script src="/app.js"></script>
+</head>
+<body>
+  <div class="app-container" x-data="gasEstimator">
+
+    <!-- Header -->
+    <header class="header">
+      <div class="header__label">&#9981; Aptos Network</div>
+      <h1 class="header__title">Gas Estimator</h1>
+      <p class="header__subtitle">Analyze gas burn rates and estimate account depletion</p>
+    </header>
+
+    <!-- Search -->
+    <form class="search-bar" @submit.prevent="analyze">
+      <input
+        class="search-bar__input"
+        type="text"
+        x-model="address"
+        placeholder="0x1234...abcd"
+        spellcheck="false"
+        autocomplete="off"
+      >
+      <button class="search-bar__btn" type="submit" :disabled="loading">
+        <template x-if="loading"><span class="spinner"></span></template>
+        <span x-text="loading ? 'Loading...' : 'Analyze'"></span>
+      </button>
+    </form>
+
+    <!-- Error -->
+    <div class="error-banner" x-show="error" x-text="error" x-cloak></div>
+
+    <!-- Sync Progress -->
+    <div class="sync-bar" x-show="syncing" x-cloak>
+      <div class="sync-bar__label">
+        <span><span class="spinner"></span>Syncing transactions...</span>
+        <span x-text="syncPercent + '%'"></span>
+      </div>
+      <div class="sync-bar__track">
+        <div class="sync-bar__fill" :style="'width:' + syncPercent + '%'"></div>
+      </div>
+    </div>
+
+    <!-- Dashboard (shown after account loads) -->
+    <template x-if="account">
+      <div>
+        <!-- Summary Cards -->
+        <div class="cards">
+          <div class="card">
+            <div class="card__label">Balance</div>
+            <div class="card__value card__value--amber">
+              <span x-text="parseFloat(balanceApt).toLocaleString(undefined, {maximumFractionDigits: 4})"></span>
+              <span class="card__unit">APT</span>
+            </div>
+            <div class="card__sub" x-text="formatNumber(account.sequence_number) + ' transactions'"></div>
+          </div>
+
+          <div class="card">
+            <div class="card__label">
+              Daily Burn Rate
+              <span x-show="rateMultiplier > 1" class="multiplier-badge" x-text="rateMultiplier + 'x'"></span>
+            </div>
+            <div class="card__value">
+              <span x-text="parseFloat(dailyBurnApt).toFixed(6)"></span>
+              <span class="card__unit">APT/day</span>
+            </div>
+            <div class="card__sub" x-show="rateMultiplier > 1" x-text="'Base rate: ' + parseFloat(baseDailyBurnApt).toFixed(6) + ' APT/day'"></div>
+            <div class="card__sub" x-show="rateMultiplier === 1" x-text="'Total burned: ' + octasToApt(account.burn_rate?.total_gas_burned_octas || '0') + ' APT'"></div>
+          </div>
+
+          <div class="card">
+            <div class="card__label">Estimated Depletion</div>
+            <div class="card__value" :class="daysRemainingColor">
+              <span x-text="formatDaysRemaining(daysRemaining)"></span>
+            </div>
+            <div class="card__sub" x-show="depletionDate" x-text="depletionDate"></div>
+            <div class="confidence-badge" :class="'confidence-badge--' + confidence" x-text="confidence + ' confidence'" x-show="confidence !== 'none'"></div>
+            <div class="card__sub" x-show="confidence === 'none'" style="color: var(--text-muted);">No data yet</div>
+          </div>
+        </div>
+
+        <!-- Rate Multiplier -->
+        <div class="rate-adjuster" x-show="account.burn_rate?.confidence !== 'none'">
+          <div class="rate-adjuster__label">Simulate higher usage</div>
+          <div class="rate-adjuster__options">
+            <template x-for="m in multipliers" :key="m">
+              <button
+                type="button"
+                class="rate-adjuster__btn"
+                :class="rateMultiplier === m && 'rate-adjuster__btn--active'"
+                @click="rateMultiplier = m"
+                x-text="m === 1 ? 'Actual' : m + 'x'"
+              ></button>
+            </template>
+          </div>
+        </div>
+
+        <!-- Burn Rate Chart -->
+        <div class="chart-section" x-show="burnChartData && burnChartData.length > 0">
+          <div class="chart-section__header">
+            <h2 class="chart-section__title">Gas Burn Over Time</h2>
+            <div class="bucket-selector">
+              <template x-for="b in ['hour', 'day', 'week', 'month']">
+                <button
+                  type="button"
+                  class="bucket-btn"
+                  :class="selectedBucket === b && 'bucket-btn--active'"
+                  @click="changeBucket(b)"
+                  x-text="b"
+                ></button>
+              </template>
+            </div>
+          </div>
+          <div class="chart-wrapper">
+            <canvas id="burnChart"></canvas>
+          </div>
+        </div>
+
+        <!-- Transaction Table -->
+        <div class="table-section" x-show="transactions.length > 0">
+          <div class="table-section__header">
+            <h2 class="table-section__title">Transactions</h2>
+            <span class="pagination__info" x-show="pagination" x-text="formatNumber(pagination?.total) + ' total'"></span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Hash</th>
+                  <th>Gas Used</th>
+                  <th>Gas Price</th>
+                  <th>Total Cost</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="tx in transactions" :key="tx.hash">
+                  <tr>
+                    <td x-text="formatDate(tx.timestamp_iso)"></td>
+                    <td><a :href="explorerUrl(tx.hash)" target="_blank" rel="noopener" x-text="formatHash(tx.hash)" :aria-label="'View transaction ' + tx.hash"></a></td>
+                    <td x-text="formatNumber(tx.gas_used)"></td>
+                    <td x-text="formatNumber(tx.gas_unit_price)"></td>
+                    <td style="color: var(--amber-400);" x-text="tx.gas_cost_apt + ' APT'"></td>
+                    <td>
+                      <span class="status-dot" :class="tx.success ? 'status-dot--success' : 'status-dot--fail'"></span>
+                      <span x-text="tx.success ? 'OK' : 'Fail'"></span>
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Pagination -->
+          <div class="pagination" x-show="pagination && pagination.total_pages > 1">
+            <button type="button" class="pagination__btn" @click="goToPage(currentPage - 1)" :disabled="currentPage <= 1">&larr; Prev</button>
+            <span class="pagination__info" x-text="'Page ' + currentPage + ' of ' + (pagination?.total_pages || 1)"></span>
+            <button type="button" class="pagination__btn" @click="goToPage(currentPage + 1)" :disabled="currentPage >= (pagination?.total_pages || 1)">Next &rarr;</button>
+          </div>
+        </div>
+
+        <!-- Empty state for transactions -->
+        <div class="empty-state" x-show="!syncing && transactions.length === 0 && account.burn_rate?.transaction_count === 0">
+          <div class="empty-state__icon">&#9981;</div>
+          <p class="empty-state__text">No transactions found for this account.</p>
+        </div>
+      </div>
+    </template>
+
+    <!-- Initial empty state -->
+    <div class="empty-state" x-show="!account && !loading && !error">
+      <div class="empty-state__icon">&#9981;</div>
+      <p class="empty-state__text">Enter an Aptos address to analyze its gas usage</p>
+    </div>
+
+  </div>
+</body>
+</html>
