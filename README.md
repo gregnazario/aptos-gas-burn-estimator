@@ -1,6 +1,6 @@
 # Aptos Gas Estimator
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
 Estimates how long an Aptos account's balance will last given its on-chain gas
 consumption.
@@ -126,4 +126,4 @@ public/       # static frontend (plain JS + Alpine.js and Chart.js from CDN)
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+Apache-2.0 — see [LICENSE](LICENSE).
