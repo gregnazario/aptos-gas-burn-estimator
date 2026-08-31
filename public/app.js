@@ -79,9 +79,9 @@ class RateLimiter {
                 CONFIG.BASE_BACKOFF_MS * 2 ** Math.min(attempt, 10) + Math.random() * 1000,
                 CONFIG.MAX_BACKOFF_MS,
               );
-        console.log(
-          `Rate limiter: ${is429 ? "429" : err.status} on attempt ${attempt + 1}, waiting ${Math.round(backoff)}ms`,
-        );
+        const waitMs = Math.round(backoff);
+        const rateLimitStatus = is429 ? "429" : err.status;
+        console.log(`Rate limiter: ${rateLimitStatus} on attempt ${attempt + 1}, waiting ${waitMs}ms`);
         await new Promise((r) => setTimeout(r, backoff));
         attempt++;
       }
