@@ -2,6 +2,7 @@
   "name": "aptos-gas-estimator",
   "version": "1.0.0",
   "type": "module",
+  "packageManager": "bun@1.4.0",
   "description": "Estimate when an Aptos account will run out of gas",
   "scripts": {
     "dev": "tsx src/server.ts",
