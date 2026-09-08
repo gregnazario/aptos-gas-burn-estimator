@@ -72,13 +72,16 @@ class RateLimiter {
         // Server errors give up after MAX_RETRIES; 429s retry forever
         if (isServer && attempt >= CONFIG.MAX_RETRIES) throw err;
 
-        const backoff = is429 && err.retryAfter
-          ? err.retryAfter * 1000
-          : Math.min(
-              CONFIG.BASE_BACKOFF_MS * 2 ** Math.min(attempt, 10) + Math.random() * 1000,
-              CONFIG.MAX_BACKOFF_MS,
-            );
-        console.log(`Rate limiter: ${is429 ? "429" : err.status} on attempt ${attempt + 1}, waiting ${Math.round(backoff)}ms`);
+        const backoff =
+          is429 && err.retryAfter
+            ? err.retryAfter * 1000
+            : Math.min(
+                CONFIG.BASE_BACKOFF_MS * 2 ** Math.min(attempt, 10) + Math.random() * 1000,
+                CONFIG.MAX_BACKOFF_MS,
+              );
+        const waitMs = Math.round(backoff);
+        const rateLimitStatus = is429 ? "429" : err.status;
+        console.log(`Rate limiter: ${rateLimitStatus} on attempt ${attempt + 1}, waiting ${waitMs}ms`);
         await new Promise((r) => setTimeout(r, backoff));
         attempt++;
       }
@@ -331,11 +334,7 @@ function bucketTransactions(transactions, bucketType) {
         break;
       }
       case "month":
-        key =
-          d.getUTCFullYear() +
-          "-" +
-          String(d.getUTCMonth() + 1).padStart(2, "0") +
-          "-01";
+        key = d.getUTCFullYear() + "-" + String(d.getUTCMonth() + 1).padStart(2, "0") + "-01";
         break;
       default:
         key =
@@ -546,9 +545,7 @@ document.addEventListener("alpine:init", () => {
     },
 
     _paginateTransactions() {
-      const sorted = [...this._allTransactions].sort(
-        (a, b) => b.sequence_number - a.sequence_number,
-      );
+      const sorted = [...this._allTransactions].sort((a, b) => b.sequence_number - a.sequence_number);
       const limit = 50;
       const total = sorted.length;
       const totalPages = Math.ceil(total / limit);
